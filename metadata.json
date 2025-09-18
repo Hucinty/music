@@ -1,0 +1,5 @@
+{
+  "name": "React Music Player",
+  "description": "A web-based music player where admins can upload songs and users can listen to them. Features a modern interface with playback controls, playlist management, and simulated role-based access.",
+  "requestFramePermissions": []
+}
