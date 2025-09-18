@@ -26,6 +26,7 @@ export const UserPlayer: React.FC<UserPlayerProps> = ({ songs, onLogout }) => {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressBarRef = useRef<HTMLInputElement>(null);
@@ -33,15 +34,23 @@ export const UserPlayer: React.FC<UserPlayerProps> = ({ songs, onLogout }) => {
   const currentSong = songs[currentSongIndex];
 
   useEffect(() => {
+    // Reset player state if songs array changes (e.g., becomes empty)
+    if (songs.length === 0) {
+        setIsPlaying(false);
+        setCurrentSongIndex(0);
+    }
+  }, [songs]);
+
+  useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !currentSong) return;
     
     if (isPlaying) {
       audio.play().catch(e => console.error("Error playing audio:", e));
     } else {
       audio.pause();
     }
-  }, [isPlaying, currentSongIndex]);
+  }, [isPlaying, currentSongIndex, currentSong]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -66,15 +75,19 @@ export const UserPlayer: React.FC<UserPlayerProps> = ({ songs, onLogout }) => {
   };
 
   const togglePlayPause = () => {
-    setIsPlaying(!isPlaying);
+    if (songs.length > 0) {
+        setIsPlaying(!isPlaying);
+    }
   };
 
   const playNext = () => {
+    if (songs.length === 0) return;
     setCurrentSongIndex((prevIndex) => (prevIndex + 1) % songs.length);
     setIsPlaying(true);
   };
 
   const playPrev = () => {
+    if (songs.length === 0) return;
     setCurrentSongIndex((prevIndex) => (prevIndex - 1 + songs.length) % songs.length);
     setIsPlaying(true);
   };
@@ -100,6 +113,12 @@ export const UserPlayer: React.FC<UserPlayerProps> = ({ songs, onLogout }) => {
     setCurrentSongIndex(index);
     setIsPlaying(true);
   };
+  
+  const filteredSongs = songs.filter(song => 
+    song.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    song.artist.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    song.album.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (!songs.length) {
     return (
@@ -115,13 +134,14 @@ export const UserPlayer: React.FC<UserPlayerProps> = ({ songs, onLogout }) => {
 
   return (
     <div className="min-h-screen bg-brand-bg text-brand-text font-sans flex flex-col lg:flex-row p-4 sm:p-8 gap-8">
-      <audio
+      {currentSong && <audio
         ref={audioRef}
+        key={currentSong.id}
         src={currentSong.audioSrc}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleSongEnd}
-      />
+      />}
       <header className="absolute top-4 right-4 sm:top-8 sm:right-8">
         <button onClick={onLogout} className="px-4 py-2 text-sm font-medium bg-brand-elevated rounded-full hover:bg-opacity-80 transition-all">Logout</button>
       </header>
@@ -184,29 +204,44 @@ export const UserPlayer: React.FC<UserPlayerProps> = ({ songs, onLogout }) => {
       {/* Playlist Section */}
       <div className="w-full lg:w-1/3 bg-brand-surface rounded-xl p-6 flex flex-col">
           <h3 className="text-2xl font-bold mb-4">Up Next</h3>
+          <div className="mb-4 relative">
+            <input
+                type="text"
+                placeholder="Search playlist..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full bg-brand-elevated border-transparent rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-brand-primary/50 text-sm"
+            />
+          </div>
           <div className="overflow-y-auto flex-grow pr-2">
               <ul className="space-y-2">
-                  {songs.map((song, index) => (
-                      <li
-                          key={song.id}
-                          onClick={() => selectSong(index)}
-                          className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-all ${index === currentSongIndex ? 'bg-brand-primary/20' : 'hover:bg-brand-elevated'}`}
-                      >
-                          <img src={song.coverArtSrc} alt={song.album} className="w-12 h-12 rounded-md object-cover" />
-                          <div className="flex-grow overflow-hidden">
-                              <p className={`font-semibold truncate ${index === currentSongIndex ? 'text-brand-primary' : 'text-brand-text'}`}>{song.title}</p>
-                              <p className="text-sm text-brand-secondary truncate">{song.artist}</p>
-                          </div>
-                          {index === currentSongIndex && isPlaying && (
-                             <div className="flex items-center space-x-0.5">
-                                <span className="w-1 h-4 bg-brand-primary rounded-full animate-[bounce_1s_ease-in-out_infinite] delay-0"></span>
-                                <span className="w-1 h-5 bg-brand-primary rounded-full animate-[bounce_1.2s_ease-in-out_infinite] delay-150"></span>
-                                <span className="w-1 h-3 bg-brand-primary rounded-full animate-[bounce_0.8s_ease-in-out_infinite] delay-300"></span>
-                             </div>
-                          )}
-                      </li>
-                  ))}
+                  {filteredSongs.map((song) => {
+                      const originalIndex = songs.findIndex(s => s.id === song.id);
+                      return (
+                        <li
+                            key={song.id}
+                            onClick={() => selectSong(originalIndex)}
+                            className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-all ${originalIndex === currentSongIndex ? 'bg-brand-primary/20' : 'hover:bg-brand-elevated'}`}
+                        >
+                            <img src={song.coverArtSrc} alt={song.album} className="w-12 h-12 rounded-md object-cover" />
+                            <div className="flex-grow overflow-hidden">
+                                <p className={`font-semibold truncate ${originalIndex === currentSongIndex ? 'text-brand-primary' : 'text-brand-text'}`}>{song.title}</p>
+                                <p className="text-sm text-brand-secondary truncate">{song.artist}</p>
+                            </div>
+                            {originalIndex === currentSongIndex && isPlaying && (
+                               <div className="flex items-center space-x-0.5">
+                                  <span className="w-1 h-4 bg-brand-primary rounded-full animate-[bounce_1s_ease-in-out_infinite] delay-0"></span>
+                                  <span className="w-1 h-5 bg-brand-primary rounded-full animate-[bounce_1.2s_ease-in-out_infinite] delay-150"></span>
+                                  <span className="w-1 h-3 bg-brand-primary rounded-full animate-[bounce_0.8s_ease-in-out_infinite] delay-300"></span>
+                               </div>
+                            )}
+                        </li>
+                      );
+                  })}
               </ul>
+               {filteredSongs.length === 0 && searchTerm && (
+                <p className="text-center text-brand-secondary text-sm mt-4">No songs match your search.</p>
+            )}
           </div>
       </div>
     </div>

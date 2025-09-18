@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
-import { Song } from '../types';
+import { SongData } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
 interface AdminDashboardProps {
-  addSongs: (songs: Song[]) => void;
+  addSongs: (songs: SongData[]) => Promise<void>;
   onLogout: () => void;
 }
 
@@ -34,12 +34,133 @@ const StatusBadge: React.FC<{ status: StagedFile['status'] }> = ({ status }) => 
   }
 };
 
+const SingleSongUploader: React.FC<{ addSongs: (songs: SongData[]) => Promise<void> }> = ({ addSongs }) => {
+    const [title, setTitle] = useState('');
+    const [artist, setArtist] = useState('');
+    const [album, setAlbum] = useState('');
+    const [audioFile, setAudioFile] = useState<File | null>(null);
+    const [coverArtFile, setCoverArtFile] = useState<File | null>(null);
+    const [coverArtPreview, setCoverArtPreview] = useState<string | null>(null);
+    const [isFetching, setIsFetching] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogout }) => {
+    const handleCoverArtChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setCoverArtFile(file);
+            if (coverArtPreview) URL.revokeObjectURL(coverArtPreview);
+            setCoverArtPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleFetchInfo = async () => {
+        if (!title) {
+            setError('Please enter a song title to fetch info.');
+            return;
+        }
+        setIsFetching(true);
+        setError(null);
+        try {
+            const searchTerm = encodeURIComponent(title);
+            const response = await fetch(`https://itunes.apple.com/search?term=${searchTerm}&entity=song&limit=1`);
+            if (!response.ok) throw new Error('Failed to fetch from iTunes.');
+            const data = await response.json();
+            if (data.resultCount === 0) throw new Error(`No results found for "${title}".`);
+
+            const result = data.results[0];
+            setArtist(result.artistName);
+            setAlbum(result.collectionName);
+
+            const highResArtworkUrl = result.artworkUrl100.replace('100x100', '600x600');
+            const artResponse = await fetch(highResArtworkUrl);
+            const artBlob = await artResponse.blob();
+            const artFile = new File([artBlob], 'cover.jpg', { type: artBlob.type });
+            setCoverArtFile(artFile);
+            if (coverArtPreview) URL.revokeObjectURL(coverArtPreview);
+            setCoverArtPreview(URL.createObjectURL(artFile));
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setIsFetching(false);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!title || !artist || !album || !audioFile || !coverArtFile) {
+            setError("All fields, including audio and cover art, are required.");
+            return;
+        }
+        setIsSubmitting(true);
+        const newSongData: SongData = {
+            title,
+            artist,
+            album,
+            audioFile,
+            coverArtFile,
+        };
+        await addSongs([newSongData]);
+        
+        // Reset form
+        setTitle('');
+        setArtist('');
+        setAlbum('');
+        setAudioFile(null);
+        setCoverArtFile(null);
+        if (coverArtPreview) URL.revokeObjectURL(coverArtPreview);
+        setCoverArtPreview(null);
+        setError(null);
+        (e.target as HTMLFormElement).reset();
+        setIsSubmitting(false);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-6">
+            {error && <p className="text-red-400 text-sm bg-red-500/10 p-3 rounded-lg">{error}</p>}
+             <div className="flex items-end gap-3">
+                <div className="flex-grow">
+                    <label htmlFor="title" className="block text-sm font-medium text-brand-secondary mb-1">Song Title</label>
+                    <input type="text" id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Blinding Lights" className="w-full bg-brand-elevated border border-brand-elevated rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-primary"/>
+                </div>
+                <button type="button" onClick={handleFetchInfo} disabled={isFetching || isSubmitting} className="px-4 py-2 text-sm font-bold text-brand-bg bg-brand-primary rounded-lg hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                    {isFetching ? 'Fetching...' : 'Fetch Info'}
+                </button>
+            </div>
+             <div>
+                <label htmlFor="artist" className="block text-sm font-medium text-brand-secondary mb-1">Artist</label>
+                <input type="text" id="artist" value={artist} onChange={(e) => setArtist(e.target.value)} placeholder="e.g., The Weeknd" className="w-full bg-brand-elevated border border-brand-elevated rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-primary"/>
+            </div>
+             <div>
+                <label htmlFor="album" className="block text-sm font-medium text-brand-secondary mb-1">Album</label>
+                <input type="text" id="album" value={album} onChange={(e) => setAlbum(e.target.value)} placeholder="e.g., After Hours" className="w-full bg-brand-elevated border border-brand-elevated rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-primary"/>
+            </div>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div>
+                    <label htmlFor="audioFile" className="block text-sm font-medium text-brand-secondary mb-1">Audio File</label>
+                    <input type="file" id="audioFile" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} className="w-full text-sm text-brand-secondary file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary file:text-brand-bg hover:file:bg-opacity-90"/>
+                 </div>
+                 <div className="flex items-center gap-4">
+                    {coverArtPreview && <img src={coverArtPreview} alt="Cover art preview" className="w-16 h-16 rounded-md object-cover"/>}
+                    <div className="flex-grow">
+                        <label htmlFor="coverArtFile" className="block text-sm font-medium text-brand-secondary mb-1">Cover Art</label>
+                        <input type="file" id="coverArtFile" accept="image/*" onChange={handleCoverArtChange} className="w-full text-sm text-brand-secondary file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-elevated file:text-brand-text hover:file:bg-opacity-80"/>
+                    </div>
+                 </div>
+             </div>
+             <button type="submit" disabled={isSubmitting} className="w-full py-3 font-bold text-brand-bg bg-brand-primary rounded-lg hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {isSubmitting ? 'Adding...' : 'Add Song to Library'}
+            </button>
+        </form>
+    );
+};
+
+
+const BulkUploader: React.FC<{ addSongs: (songs: SongData[]) => Promise<void> }> = ({ addSongs }) => {
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedCount, setProcessedCount] = useState(0);
-
+  
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -53,7 +174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogo
     setStagedFiles(prev => [...prev, ...newStagedFiles]);
   };
   
-  const processFile = async (file: File): Promise<{ songDetails: { title: string; artist: string; album: string }, coverArtFile: File }> => {
+   const processFile = async (file: File): Promise<{ songDetails: { title: string; artist: string; album: string }, coverArtFile: File }> => {
      const geminiPrompt = `Extract the artist and title from this filename: "${file.name}". Assume "Artist - Title" or similar formats.`;
      const geminiResponse = await ai.models.generateContent({
         model: "gemini-2.5-flash",
@@ -90,7 +211,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogo
       const songDetails = {
         title: songData.trackName || title,
         artist: songData.artistName || artist,
-        album: songData.collectionName || title, // Fallback to title for album
+        album: songData.collectionName || title,
       };
 
       const highResArtworkUrl = (songData.artworkUrl100 || '').replace('100x100', '600x600');
@@ -139,37 +260,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogo
     setIsProcessing(false);
   };
   
-  const handleAddSongsToLibrary = () => {
+  const handleAddSongsToLibrary = async () => {
     const successfulFiles = stagedFiles.filter(sf => sf.status === 'success');
     if (successfulFiles.length === 0) return;
 
-    const newSongs: Song[] = successfulFiles.map(sf => ({
-      id: `${new Date().toISOString()}-${sf.songDetails!.title}`,
+    const newSongsData: SongData[] = successfulFiles.map(sf => ({
       title: sf.songDetails!.title,
       artist: sf.songDetails!.artist,
       album: sf.songDetails!.album,
-      audioSrc: URL.createObjectURL(sf.file),
-      coverArtSrc: URL.createObjectURL(sf.coverArtFile!),
+      audioFile: sf.file,
+      coverArtFile: sf.coverArtFile!,
     }));
 
-    addSongs(newSongs);
-    setStagedFiles([]); // Clear the queue
+    await addSongs(newSongsData);
+    setStagedFiles([]);
+    setProcessedCount(0);
   };
 
   const successfulCount = stagedFiles.filter(s => s.status === 'success').length;
   const pendingCount = stagedFiles.filter(s => s.status === 'pending').length;
 
   return (
-    <div className="min-h-screen bg-brand-bg text-brand-text font-sans p-4 sm:p-8">
-      <header className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
-        <button onClick={onLogout} className="px-4 py-2 text-sm font-medium bg-brand-elevated rounded-full hover:bg-opacity-80 transition-all">Logout</button>
-      </header>
-
-      <div className="max-w-4xl mx-auto bg-brand-surface p-6 sm:p-8 rounded-xl shadow-lg">
-        <h2 className="text-2xl font-bold mb-4">Bulk Upload Songs</h2>
+    <div>
         <p className="text-brand-secondary mb-6 text-sm">Upload multiple audio files. The system will automatically find the title, artist, album, and cover art for each song.</p>
-
         <div className="border-2 border-dashed border-brand-elevated rounded-lg p-8 text-center bg-brand-bg/30">
           <label htmlFor="audioFiles" className="cursor-pointer">
             <p className="text-brand-primary font-semibold">Click to select files</p>
@@ -177,7 +290,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogo
             <input id="audioFiles" name="audioFiles" type="file" accept="audio/*" multiple onChange={handleFileChange} className="sr-only"/>
           </label>
         </div>
-        
         {stagedFiles.length > 0 && (
           <>
             <div className="my-6 space-y-4 md:space-y-0 md:flex md:items-center md:justify-between">
@@ -207,12 +319,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogo
             </div>
             
             {isProcessing && (
-              <div className="w-full bg-brand-elevated rounded-full h-2.5 my-4">
-                <div 
-                  className="bg-brand-primary h-2.5 rounded-full transition-all duration-300 ease-linear" 
-                  style={{width: `${stagedFiles.length > 0 ? (processedCount / stagedFiles.length) * 100 : 0}%`}}
-                ></div>
-                <p className="text-xs text-center mt-1 text-brand-secondary">{processedCount} / {stagedFiles.length} files processed</p>
+              <div className="my-4">
+                <div className="w-full bg-brand-elevated rounded-full h-2.5">
+                    <div 
+                    className="bg-brand-primary h-2.5 rounded-full transition-all duration-300 ease-linear" 
+                    style={{width: `${stagedFiles.length > 0 ? (processedCount / stagedFiles.length) * 100 : 0}%`}}
+                    ></div>
+                </div>
+                <p className="text-xs text-center mt-2 text-brand-secondary">{processedCount} / {stagedFiles.length} files processed</p>
               </div>
             )}
 
@@ -232,6 +346,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogo
             </div>
           </>
         )}
+    </div>
+  );
+};
+
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ addSongs, onLogout }) => {
+    const [activeTab, setActiveTab] = useState<'bulk' | 'single'>('bulk');
+    
+    const tabClasses = (tabName: 'bulk' | 'single') => 
+        `px-4 py-2 font-semibold text-sm rounded-t-lg transition-all border-b-2 ${
+            activeTab === tabName 
+            ? 'text-brand-primary border-brand-primary' 
+            : 'text-brand-secondary border-transparent hover:text-brand-text'
+        }`;
+
+  return (
+    <div className="min-h-screen bg-brand-bg text-brand-text font-sans p-4 sm:p-8">
+      <header className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
+        <button onClick={onLogout} className="px-4 py-2 text-sm font-medium bg-brand-elevated rounded-full hover:bg-opacity-80 transition-all">Logout</button>
+      </header>
+
+      <div className="max-w-4xl mx-auto bg-brand-surface p-6 sm:p-8 rounded-xl shadow-lg">
+        <div className="flex border-b border-brand-elevated mb-6">
+            <button onClick={() => setActiveTab('bulk')} className={tabClasses('bulk')}>
+                Bulk Upload
+            </button>
+            <button onClick={() => setActiveTab('single')} className={tabClasses('single')}>
+                Single Song
+            </button>
+        </div>
+
+        {activeTab === 'bulk' ? <BulkUploader addSongs={addSongs} /> : <SingleSongUploader addSongs={addSongs} />}
+        
       </div>
     </div>
   );
